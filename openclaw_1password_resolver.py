@@ -55,6 +55,10 @@ BUILTIN_FIELD_IDS = {
     "expires",
     "hostname",
 }
+DEFAULT_SELECTOR_FIELD_MAP = {
+    "token": "credential",
+    "apiKey": "credential",
+}
 
 
 class ResolverError(Exception):
@@ -606,7 +610,7 @@ class OnePasswordResolver:
     def _resolve_target_live(self, secret_id: str) -> ResolvedTarget:
         item_label, selector = self._resolve_target_parts(secret_id)
         type_mapping, type_reference, type_error = self._resolve_type_mapping(item_label)
-        mapped_field = type_mapping.get(selector, selector)
+        mapped_field = type_mapping.get(selector, DEFAULT_SELECTOR_FIELD_MAP.get(selector, selector))
         field_query, field_reference = self._resolve_field_reference(item_label, mapped_field)
         return ResolvedTarget(
             secret_id=secret_id,
