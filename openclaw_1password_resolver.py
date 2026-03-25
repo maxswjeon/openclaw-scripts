@@ -7,6 +7,8 @@ CLI modes
 - --resolve <SECRET_ID>          Print only the resolved secret value.
 - --resolve <SECRET_ID> --debug  Print JSON debug information plus the value.
 - --resolve                      Read stdin; if it's JSON with `ids`, resolve the whole batch. Otherwise extract a single secret id, or treat stdin as the raw secret id string.
+- --show-cache-path              Print the resolver cache file path.
+- --clear-cache                  Remove the resolver cache file.
 
 Provider mode
 - Reads OpenClaw exec secret provider JSON requests from stdin and returns
@@ -58,6 +60,9 @@ BUILTIN_FIELD_IDS = {
 DEFAULT_SELECTOR_FIELD_MAP = {
     "token": "credential",
     "apiKey": "credential",
+}
+TITLEIZE_ACRONYMS = {
+    "ai": "AI",
 }
 
 
@@ -326,7 +331,14 @@ class OnePasswordResolver:
         words = [word for word in spaced.split() if word]
         if not words:
             return value
-        return " ".join(word[:1].upper() + word[1:] for word in words)
+        titled: list[str] = []
+        for word in words:
+            acronym = TITLEIZE_ACRONYMS.get(word.lower())
+            if acronym:
+                titled.append(acronym)
+            else:
+                titled.append(word[:1].upper() + word[1:])
+        return " ".join(titled)
 
     @staticmethod
     def _coerce_field_value(value: Any) -> str:
@@ -564,6 +576,8 @@ class OnePasswordResolver:
             "returned no fields",
             "no usable field",
             "no such",
+            "isn't a field",
+            "is not a field",
         ]
         return any(marker in normalized for marker in markers)
 
@@ -760,6 +774,22 @@ def refresh_aliases_command(resolver: OnePasswordResolver) -> int:
     return 0
 
 
+def show_cache_path_command(resolver: OnePasswordResolver) -> int:
+    print(resolver._cache_path or "")
+    return 0
+
+
+def clear_cache_command(resolver: OnePasswordResolver) -> int:
+    if resolver._cache_path and os.path.exists(resolver._cache_path):
+        os.remove(resolver._cache_path)
+    resolver._alias_cache = {}
+    resolver._aliases_loaded = False
+    resolver._type_cache = {}
+    resolver._field_cache = {}
+    print("cleared")
+    return 0
+
+
 def _parse_stdin_for_resolve(raw: str) -> tuple[str, str | dict[str, Any]]:
     text = raw.strip()
     if not text:
@@ -805,6 +835,12 @@ def main(argv: list[str]) -> int:
     if len(args) == 1 and args[0] == "--refresh-aliases":
         return refresh_aliases_command(resolver)
 
+    if len(args) == 1 and args[0] == "--show-cache-path":
+        return show_cache_path_command(resolver)
+
+    if len(args) == 1 and args[0] == "--clear-cache":
+        return clear_cache_command(resolver)
+
     if len(args) == 1 and args[0] == "--resolve":
         try:
             mode, payload = _parse_stdin_for_resolve(sys.stdin.read())
@@ -828,7 +864,7 @@ def main(argv: list[str]) -> int:
 
     if len(args) != 0:
         print(
-            "usage: openclaw_1password_resolver.py [--path SECRET_ID | --resolve [SECRET_ID]] [--debug]",
+            "usage: openclaw_1password_resolver.py [--path SECRET_ID | --resolve [SECRET_ID] | --show-cache-path | --clear-cache] [--debug]",
             file=sys.stderr,
         )
         return 2
