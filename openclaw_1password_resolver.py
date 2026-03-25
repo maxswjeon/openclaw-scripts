@@ -63,6 +63,8 @@ DEFAULT_SELECTOR_FIELD_MAP = {
 }
 TITLEIZE_ACRONYMS = {
     "ai": "AI",
+    "github": "GitHub",
+    "cloudflare": "Cloudflare",
 }
 
 
@@ -359,6 +361,31 @@ class OnePasswordResolver:
             raise ResolverError(f"unsupported secret id: {secret_id}")
         return parts[:-1], parts[-1]
 
+    @staticmethod
+    def _normalized_words(value: str) -> list[str]:
+        return [part.casefold() for part in re.split(r"[^A-Za-z0-9]+", value) if part]
+
+    @classmethod
+    def _compose_profile_item_label(cls, base_label: str, profile: str) -> str:
+        label = base_label.strip()
+        profile_text = profile.strip()
+        if not label or not profile_text:
+            return label or profile_text
+        if profile_text.casefold() == "default":
+            return label
+        profile_suffix = f"({profile_text})"
+        lowered_label = label.casefold()
+        lowered_suffix = profile_suffix.casefold()
+        if lowered_label == lowered_suffix or lowered_label.endswith(lowered_suffix):
+            return label
+        label_words = cls._normalized_words(label)
+        profile_words = cls._normalized_words(profile_text)
+        if profile_words:
+            for start in range(0, len(label_words) - len(profile_words) + 1):
+                if label_words[start : start + len(profile_words)] == profile_words:
+                    return label
+        return f"{label} {profile_suffix}"
+
     def _get_field_object(self, item_label: str, field_query: str, *, optional: bool = False) -> dict[str, Any] | None:
         cache_key = (item_label, field_query)
         if cache_key in self._field_cache:
@@ -507,13 +534,21 @@ class OnePasswordResolver:
                 [f"provider.{provider}", provider],
                 self._titleize(provider),
             )
-            return f"{provider_label} ({profile})", selector
+            return self._compose_profile_item_label(provider_label, profile), selector
 
         stem_parts, selector = self._split_selector(secret_id)
 
         if stem_parts[:2] == ["gateway", "auth"] and len(stem_parts) == 2:
             item_label = self._alias_or_default(["item.gateway.auth", "gateway.auth"], "Gateway Auth")
             return item_label, selector
+
+        if len(stem_parts) >= 2 and stem_parts[0] == "providers":
+            provider_parts = stem_parts[1:]
+            item_parts: list[str] = []
+            if provider_parts:
+                item_parts.append(self._normalize_segment(provider_parts[0], scope="provider"))
+                item_parts.extend(self._normalize_segment(part, scope="path") for part in provider_parts[1:])
+            return " ".join(part for part in item_parts if part), selector
 
         if len(stem_parts) >= 4 and stem_parts[:2] == ["plugins", "entries"] and "config" in stem_parts[3:]:
             plugin = stem_parts[2]
